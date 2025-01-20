@@ -1,6 +1,7 @@
 const { google } = require('googleapis');
 const { JWT } = require('google-auth-library');
 const { transcribeVideo } = require('./geminiService');
+const { createTranscriptionRecord, updateTranscription } = require('./supabaseService');
 
 const SCOPES = ['https://www.googleapis.com/auth/drive.readonly'];
 const POLLING_INTERVAL = 30000; // 30 seconds
@@ -26,14 +27,21 @@ async function initializeDriveWatcher(io) {
       if (newFiles.length > 0) {
         for (const file of newFiles) {
           console.log(`New video detected: ${file.name}`);
-          // Download file and process with Gemini
+          
+          // Create initial record in Supabase
+          const record = await createTranscriptionRecord(file.id, file.name);
+          
+          // Emit new pending transcription to clients
+          io.emit('newPendingTranscription', record);
+          
+          // Process the transcription
           const transcription = await transcribeVideo(file.id, drive);
           
-          // Emit to connected clients
-          io.emit('newTranscription', {
-            fileName: file.name,
-            transcription: transcription
-          });
+          // Update record with transcription
+          const updatedRecord = await updateTranscription(file.id, transcription);
+          
+          // Emit completed transcription to clients
+          io.emit('transcriptionComplete', updatedRecord);
         }
       }
 
